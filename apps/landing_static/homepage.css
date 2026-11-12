@@ -7,3 +7,7 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
 /* Keep supporting copy readable, including the request-data notice. */
 .hero-note{color:#5e6c58}.hero-note,.audio-status{font-size:11px}.sample-meta{color:#63715b;font-size:10px}.feature-grid p{color:#566a4e}.steps p,.faq-list details p{color:#5c7054}.access-form>p:first-of-type,.access-form .form-privacy{color:#617354}.access-form .form-privacy{font-size:11px}.access-form input::placeholder,.access-form textarea::placeholder{color:#6b7b5f}.footer-bottom{color:#65725b;font-size:10px}.visual-caption{color:#6f7c62}.optional{color:#68795c}
+/* Grid children must shrink below the decorative waveform's intrinsic width. */
+.hero{grid-template-columns:minmax(0,1.02fr) minmax(0,1fr)}.hero>*,.api-section>*,.request-grid>*{min-width:0}.waveform i{min-width:1px}
+@media(max-width:760px){.hero{grid-template-columns:minmax(0,1fr)}.hero h1{font-size:58px}.waveform{gap:2px}.sample-wave{gap:3px}.hero-actions{gap:16px}.hero-actions .button{padding:14px 18px;font-size:13px;gap:16px}}
+@media(max-width:380px){.hero h1{font-size:52px}.hero-actions{gap:14px}.hero-actions .button{font-size:12px;padding:14px 17px;gap:12px}}
