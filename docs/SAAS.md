@@ -1,6 +1,6 @@
 # SaaS foundation — manual plans
 
-Owner: `/saas/admin` (existing owner Basic Auth). Customers: `/saas/`.
+Owner: `/saas/admin`, sign in at `/saas/admin/login` using the administrator account. Customers: `/saas/`.
 Customer API: `/saas/api`, using their own `sv_` API keys. The original owner
 `/public-api` key stays separate and is not suitable for distributing to customers.
 
@@ -26,8 +26,9 @@ Strict cookies), API keys only hash+prefix persisted and shown once. Session
 mutations require CSRF token; all supplied Origins must match public origin.
 Login throttled by account and connection peer. Under a shared proxy, peer limits
 may affect several users together; this is an initial abuse guard, not distributed
-rate limiting. Owner admin requires nginx Basic Auth plus backend loopback guard;
-external forwarded requests cannot enter admin routes. Do not publish backend
+rate limiting. Owner admin requires a dedicated admin session and CSRF token; nginx also checks
+that session for the owner engine UI. Neither Basic headers nor local forwarding
+can grant admin privileges. Do not publish backend
 port or alter admin forwarding rules without revalidating access boundaries.
 
 Customers cannot change model, clone voices, access owner history, or access other
@@ -39,3 +40,5 @@ immediately. No password reset/email verification yet; owner-assisted onboarding
 Before scale-up: owner must choose commercial terms/pricing, evaluate model voice
 licenses for intended use, and measure actual long-form/concurrent workload. This
 release is a functioning manual-service foundation, not automated paid billing.
+
+Admin account/session details and CLI recovery: `ADMIN-AUTH.md`.

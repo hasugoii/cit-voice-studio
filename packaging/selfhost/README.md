@@ -1,6 +1,6 @@
 # VPS / Coolify gateway
 
-This directory is versioned with the application. It adds Basic Auth for the
+This directory is versioned with the application. It adds administrator session login for the
 management UI and app-key auth for `/public-api`. Deploy only behind HTTPS.
 Backend stays loopback-only; no direct host port 8001 should be published.
 
@@ -20,12 +20,27 @@ URL remains HTTPS 443). Change `CIT_PUBLIC_URL` to the same HTTPS origin.
 `SERVICE_FQDN_VOICE_8080` is interpreted by Coolify; on plain Docker Compose it
 does not itself create DNS or TLS and requires your own reverse proxy.
 
-Create `/data/cit-voice-auth/htpasswd` on the VPS with a compatible password hash
-using a trusted password tool; never commit credentials. The gateway reads it
-from the read-only mount `/run/cit-auth/htpasswd`. Keep username/password in a
-secret manager. All model/addon/runtime/settings/history files persist in the
-named `/data` volume. Existing installations must copy `/app/gpu_venv` into
-`/data/gpu_venv` before first migration to this image to preserve interpreter paths.
+Provision the first owner from a trusted VPS terminal after deployment:
+
+```bash
+sudo docker exec -it voice-YOUR_SERVICE_UUID python -m apps.admin_cli bootstrap --username admin
+```
+
+Enter the password interactively; do not put it in command arguments or Git. There
+is no public bootstrap/setup endpoint and bootstrap refuses to overwrite an existing
+admin. Sign in at `/saas/admin/login`. Owner credentials are separate from customer
+accounts/plans. The session cookie is Secure/HttpOnly/SameSiteStrict with a 12-hour
+lifetime. Owner UI/API is gated by nginx `auth_request` and backend admin sessions;
+Basic Authorization and trusted loopback headers do not grant administrator access.
+
+For trusted recovery only, run `python -m apps.admin_cli reset-password --username
+admin` inside the container; it revokes all previous admin sessions. Normal password
+changes are under Tài khoản & mật khẩu after login. Customer passwords are unrelated.
+
+All model/addon/runtime/settings/history files and SaaS SQLite persist in the named
+`/data` volume. Existing addon installations must copy `/app/gpu_venv` into
+`/data/gpu_venv` before first migration to this image. Before migrating from an older
+release, make an online SQLite backup; preserve volume and avoid resetting plans.
 
 Deployment configuration:
 
@@ -37,7 +52,7 @@ Deployment configuration:
 Gateway renders its hostname, allowed browser Origin and public prefix at startup.
 Swagger lives at `$CIT_PUBLIC_URL/public-api/docs`; use the API key from Settings
 → API qua HTTPS → Khóa API. Key rotation/toggle is enforced by the backend;
-management Basic Auth is separate. Supported models share one active instance.
+owner session login is separate. Supported models share one active instance.
 
 ## Update your fork
 

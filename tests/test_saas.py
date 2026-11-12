@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 
 PUBLIC = "https://voice.example.com"
 PASSWORD = "test-password-12345"
-ADMIN_HEADERS = {"X-Requested-With": "CIT-SaaS"}
+ADMIN_USERNAME = "owner"
+ADMIN_PASSWORD = "owner-password-12345"
+ADMIN_HEADERS = {}  # Admin CSRF is installed on the authenticated client.
 
 
 def assert_denied(response):
@@ -28,10 +30,12 @@ def assert_no_secrets(value, *secrets):
             assert_no_secrets(item, *secrets)
 
 
-def test_admin_requires_local_peer_and_local_host(saas_env):
+def test_admin_requires_session_regardless_of_peer_and_host(saas_env):
     app, admin, _, _ = saas_env
     assert admin.get('/saas/api/admin/users').status_code == 200
     for peer, url, headers in [
+        (('127.0.0.1', 1234), 'http://127.0.0.1', {}),
+        (('203.0.113.8', 1234), PUBLIC, {}),
         (('203.0.113.8', 1234), 'http://127.0.0.1', {}),
         (('127.0.0.1', 1234), PUBLIC, {}),
         (('127.0.0.1', 1234), 'http://127.0.0.1', {'X-Forwarded-For': '203.0.113.8'}),
@@ -44,12 +48,13 @@ def test_admin_requires_local_peer_and_local_host(saas_env):
             assert_denied(client.get('/saas/api/admin/users', headers=headers))
 
 
-def test_admin_mutations_need_ajax_and_matching_origin(saas_env):
+def test_admin_mutations_need_csrf_and_matching_origin(saas_env):
     _, admin, _, _ = saas_env
     activate_trial(admin)
     payload = dict(name='Alice', email='alice@example.com', password=PASSWORD,
                    plan_id='trial', status='active')
-    assert_denied(admin.post('/saas/api/admin/users', json=payload))
+    assert_denied(admin.post('/saas/api/admin/users', json=payload,
+                            headers={'X-CSRF-Token': ''}))
     assert_denied(admin.post('/saas/api/admin/users', json=payload,
                             headers={**ADMIN_HEADERS, 'Origin': 'https://evil.example'}))
     response = admin.post('/saas/api/admin/users', json=payload,
@@ -203,10 +208,16 @@ def saas_env(tmp_path, monkeypatch):
         {'id': 'owner-clone', 'name': 'Secret clone', 'isCloned': True},
     ])
     saas.init_db()
+    saas.bootstrap_admin(ADMIN_USERNAME, ADMIN_PASSWORD)
     app = FastAPI()
     app.add_middleware(remote_access.RemoteAccessMiddleware)
     app.include_router(saas.router)
-    with TestClient(app, base_url='http://127.0.0.1:8001', client=('127.0.0.1', 1234)) as admin:
+    with TestClient(app, base_url=PUBLIC, client=('203.0.113.20', 1234)) as admin:
+        response = admin.post('/saas/api/admin-auth/login', json={
+            'username': ADMIN_USERNAME, 'password': ADMIN_PASSWORD,
+        })
+        assert response.status_code == 200, response.text
+        admin.headers.update({'X-CSRF-Token': response.json()['session_csrf']})
         with TestClient(app, base_url=PUBLIC, client=('203.0.113.10', 1234)) as client:
             yield app, admin, client, state
 
@@ -538,11 +549,11 @@ def test_busy_server_rejects_other_tenant_request_without_charge(saas_env, accou
 
 
 def test_forwarded_admin_mutation_denied_even_with_personal_key(saas_env, account):
-    _, admin, client, _ = saas_env
+    _, _, client, _ = saas_env
     key = make_key(client, login(client, account))['key']
     for header in ('X-Forwarded-For', 'Forwarded', 'X-Forwarded-Host', 'X-Real-IP', 'CF-Connecting-IP'):
-        response = admin.patch('/saas/api/admin/users/' + account['id'],
-                               headers={**ADMIN_HEADERS, 'X-API-Key': key, header: '127.0.0.1'},
-                               json={'status': 'suspended'})
+        response = client.patch('/saas/api/admin/users/' + account['id'],
+                                headers={**ADMIN_HEADERS, 'X-API-Key': key, header: '127.0.0.1'},
+                                json={'status': 'suspended'})
         assert_denied(response)
     assert client.get('/saas/api/me').json()['user']['status'] == 'active'

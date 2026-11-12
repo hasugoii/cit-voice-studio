@@ -31,7 +31,9 @@ class SafeRoute(APIRoute):
         original = super().get_route_handler()
         async def handler(request):
             try:
-                return await original(request)
+                response=await original(request)
+                response.headers.setdefault('Cache-Control','no-store')
+                return response
             except RequestValidationError as error:
                 # Pydantic includes raw input values by default (incl. passwords).
                 detail=[{k:e[k] for k in ('loc','msg','type')} for e in error.errors()]
@@ -42,6 +44,8 @@ class SafeRoute(APIRoute):
 router = APIRouter(prefix='/saas', include_in_schema=False, route_class=SafeRoute)
 COOKIE = '__Secure-cit_saas'
 SESSION_SECONDS = 7 * 86400
+ADMIN_COOKIE = '__Secure-cit_admin'
+ADMIN_SESSION_SECONDS = 12 * 3600
 # Filled by web_stream without network round trips or access to owner history.
 generate_audio: Callable | None = None
 list_voices: Callable | None = None
@@ -97,6 +101,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS auth_attempts (bucket TEXT NOT NULL, at REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS auth_bucket_time ON auth_attempts(bucket,at);
         CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, action TEXT NOT NULL, target_id TEXT, created_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS admin_users (
+          id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+          password_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS admin_sessions (
+          token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES admin_users(id),
+          csrf TEXT NOT NULL, expires_at REAL NOT NULL);
         ''')
         for pid,name,limit,job,price in [('trial','Trial',1000,500,0),('pro','Pro',100000,5000,None),('business','Business',500000,10000,None)]:
             db.execute('INSERT OR IGNORE INTO plans VALUES (?,?,?,?,?,0,1,?,?,?,?)',
@@ -122,12 +132,18 @@ def _origin(request: Request):
 
 def _admin(request: Request):
     _ready()
-    # nginx supplies local headers only after owner Basic Auth for admin paths.
-    if request.url.hostname not in remote_access._LOCAL_HOSTNAMES or not request.client or not remote_access._is_loopback(request.client.host) or remote_access.is_remote(request.scope):
-        raise HTTPException(403,'Chỉ quản trị viên được truy cập.')
     _origin(request)
-    if request.method not in ('GET','HEAD') and request.headers.get('x-requested-with') != 'CIT-SaaS':
-        raise HTTPException(403,'Thiếu xác nhận yêu cầu quản trị.')
+    token=request.cookies.get(ADMIN_COOKIE,'')
+    with connect() as db:
+        row=db.execute('''SELECT a.id,a.username,a.name,a.status,s.csrf FROM admin_users a
+            JOIN admin_sessions s ON s.admin_id=a.id
+            WHERE s.token_hash=? AND s.expires_at>? AND a.status='active' ''',
+            (hashlib.sha256(token.encode()).hexdigest(),time.time())).fetchone()
+    if row is None:
+        raise HTTPException(401,'Vui lòng đăng nhập tài khoản quản trị.')
+    if request.method not in ('GET','HEAD') and not hmac.compare_digest(request.headers.get('x-csrf-token',''),row['csrf']):
+        raise HTTPException(403,'Phiên quản trị thiếu mã CSRF. Tải lại trang rồi thử lại.')
+    return dict(row)
 
 
 def _audit(db, action, target):
@@ -156,6 +172,105 @@ def _password_ok(password, stored):
         return hmac.compare_digest(actual,digest)
     except (ValueError,TypeError):
         return False
+
+
+def bootstrap_admin(username,password,name='Quản trị viên'):
+    """First owner provisioning is CLI-only. Never resets an existing account."""
+    _ready()
+    username=username.strip().lower()
+    if not re.fullmatch(r'[a-z0-9][a-z0-9_.@-]{2,79}',username):
+        raise HTTPException(422,'Tên đăng nhập cần 3–80 ký tự chữ, số hoặc . _ @ -')
+    password_hash=_password_hash(password)
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute('SELECT COUNT(*) FROM admin_users').fetchone()[0]:
+            raise HTTPException(409,'Đã có tài khoản admin. Không ghi đè thông tin đăng nhập.')
+        aid=uuid.uuid4().hex
+        db.execute('INSERT INTO admin_users VALUES (?,?,?,?,?,?)',(aid,username,name,password_hash,'active',time.time()))
+        _audit(db,'admin.bootstrap',aid);db.commit()
+    return {'id':aid,'username':username,'name':name,'status':'active'}
+
+
+class AdminLogin(BaseModel):
+    username:str=Field(min_length=1,max_length=80)
+    password:str=Field(min_length=1,max_length=256)
+
+
+def _admin_result(row):
+    return {'admin':{k:row[k] for k in ('id','username','name','status')},'session_csrf':row['csrf']}
+
+
+@router.post('/api/admin-auth/login')
+def admin_login(data:AdminLogin,request:Request,response:Response):
+    _ready();_origin(request)
+    username=data.username.strip().lower()
+    _rate(request,'admin:'+username)
+    with connect() as db:
+        row=db.execute('SELECT * FROM admin_users WHERE username=?',(username,)).fetchone()
+    stored=row['password_hash'] if row else '00'*16+':'+'00'*64
+    if not _password_ok(data.password,stored) or not row or row['status']!='active':
+        raise HTTPException(401,'Tên đăng nhập hoặc mật khẩu không đúng.')
+    token=secrets.token_urlsafe(32);csrf=secrets.token_urlsafe(24)
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        fresh=db.execute('SELECT password_hash,status FROM admin_users WHERE id=?',(row['id'],)).fetchone()
+        if not fresh or fresh['status']!='active' or not hmac.compare_digest(fresh['password_hash'],stored):
+            raise HTTPException(401,'Thông tin đăng nhập vừa thay đổi. Vui lòng đăng nhập lại.')
+        db.execute('DELETE FROM admin_sessions WHERE expires_at<?',(time.time(),))
+        db.execute('INSERT INTO admin_sessions VALUES (?,?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],csrf,time.time()+ADMIN_SESSION_SECONDS))
+        _audit(db,'admin.login',row['id'])
+        db.commit()
+    response.set_cookie(ADMIN_COOKIE,token,max_age=ADMIN_SESSION_SECONDS,secure=True,httponly=True,samesite='strict',path='/')
+    response.headers['Cache-Control']='no-store'
+    return _admin_result({**dict(row),'csrf':csrf})
+
+
+@router.get('/api/admin-auth/me')
+def admin_me(request:Request,response:Response):
+    response.headers['Cache-Control']='no-store'
+    return _admin_result(_admin(request))
+
+
+@router.get('/api/admin-auth/check')
+def admin_check(request:Request):
+    _admin(request)
+    return Response(status_code=204,headers={'Cache-Control':'no-store'})
+
+
+@router.post('/api/admin-auth/logout')
+def admin_logout(request:Request,response:Response):
+    admin=_admin(request)
+    with connect() as db:
+        db.execute('DELETE FROM admin_sessions WHERE token_hash=?',(hashlib.sha256(request.cookies.get(ADMIN_COOKIE,'').encode()).hexdigest(),))
+        _audit(db,'admin.logout',admin['id'])
+    response.delete_cookie(ADMIN_COOKIE,path='/',secure=True,httponly=True,samesite='strict')
+    response.headers['Cache-Control']='no-store'
+    return {'ok':True}
+
+
+class AdminPassword(BaseModel):
+    current_password:str=Field(min_length=1,max_length=256)
+    new_password:str=Field(min_length=12,max_length=256)
+
+
+@router.post('/api/admin-auth/password')
+def admin_change_password(data:AdminPassword,request:Request,response:Response):
+    admin=_admin(request)
+    _rate(request,'admin-password:'+admin['username'])
+    with connect() as db:
+        row=db.execute('SELECT password_hash FROM admin_users WHERE id=?',(admin['id'],)).fetchone()
+        if not _password_ok(data.current_password,row['password_hash']):
+            raise HTTPException(401,'Mật khẩu hiện tại không đúng.')
+        new_hash=_password_hash(data.new_password)
+        db.execute('BEGIN IMMEDIATE')
+        fresh=db.execute('SELECT password_hash FROM admin_users WHERE id=?',(admin['id'],)).fetchone()
+        if not fresh or not hmac.compare_digest(fresh['password_hash'],row['password_hash']):
+            raise HTTPException(409,'Mật khẩu vừa thay đổi ở phiên khác. Vui lòng đăng nhập lại.')
+        db.execute('UPDATE admin_users SET password_hash=? WHERE id=?',(new_hash,admin['id']))
+        db.execute('DELETE FROM admin_sessions WHERE admin_id=?',(admin['id'],))
+        _audit(db,'admin.password_change',admin['id']);db.commit()
+    response.delete_cookie(ADMIN_COOKIE,path='/',secure=True,httponly=True,samesite='strict')
+    return {'ok':True,'login_required':True}
 
 
 def _public_user(row):
@@ -547,7 +662,18 @@ def user_page():
 @router.get('/admin')
 @router.get('/admin/')
 def admin_page(request:Request):
-    _admin(request)
+    try:
+        _admin(request)
+    except HTTPException as error:
+        if error.status_code!=401:raise
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse('/saas/admin/login',status_code=303)
+    return FileResponse(Path(__file__).with_name('saas_static')/'admin.html',headers={'Cache-Control':'no-store'})
+
+
+@router.get('/admin/login')
+def admin_login_page():
+    _ready()
     return FileResponse(Path(__file__).with_name('saas_static')/'admin.html',headers={'Cache-Control':'no-store'})
 
 

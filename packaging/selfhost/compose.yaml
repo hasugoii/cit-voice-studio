@@ -10,7 +10,6 @@ services:
       - OMP_NUM_THREADS=2
     volumes:
       - cit-data:/data
-      - /data/cit-voice-auth:/run/cit-auth:ro
     mem_limit: 8g
     cpus: 2.0
     restart: unless-stopped

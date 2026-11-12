@@ -16,9 +16,9 @@ API toggle takes effect immediately; there is no listener restart requirement.
 Internal port is container-managed; web attempts to change it return 409.
 Existing persisted desktop port preferences do not override the container port.
 
-Requires the authenticated same-container nginx gateway in the sibling
+Requires the session-authenticated same-container nginx gateway in the sibling
 `deployments/cit-voice-studio` directory in the VPS workspace. Backend binds only
-loopback; gateway validates administrator Basic Auth and proxies with local
+loopback; gateway validates administrator session with auth_request and proxies with local
 headers for management. External API prefix preserves forwarded classification
 and passes API key to the app. It exposes only six inference/status routes and
 four documentation routes. Other prefixed routes return 404. Do not forward
