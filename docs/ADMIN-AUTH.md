@@ -1,6 +1,6 @@
 # Administrator login — 2026-11-13
 
-- Login: `/saas/admin/login`; admin dashboard `/saas/admin`; owner engine UI `/`.
+- Login: `/saas/admin/login`; admin dashboard `/saas/admin`; owner engine UI `/studio`. Public `/` is the marketing homepage.
 - Dedicated admin account (`admin_users`) and sessions (`admin_sessions`), separate
   from customer user/plan/keys. Creating a customer never grants administrator role.
 - First owner is provisioned only from the trusted VPS CLI, never a public setup URL.

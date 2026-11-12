@@ -86,3 +86,7 @@ env COOLIFY_SERVICE_UUID=akk7ydzazhn2fkb8svt0zmsr sh packaging/selfhost/update-v
 This service-specific command pulls the fork branch, rebuilds both local images and
 recreates only the voice service. It does not change firewall, Docker daemon, or
 remove volumes. Domain/environment changes must first be saved in Coolify.
+
+Homepage is public at `/`. Owner engine now lives at `/studio` and still requires
+an administrator session; customer portal stays `/saas/`. Manual requests from
+homepage are visible in admin → Yêu cầu tài khoản, with no automatic provisioning.
