@@ -1,3 +1,10 @@
+> **Bản fork self-host / SaaS:** nhánh mặc định `selfhost-vps` bổ sung domain HTTPS,
+> trang quản trị gói và khách hàng, khóa API riêng và hạn mức ký tự theo user.
+> Xem [Self-host VPS](docs/SELFHOST.md), [SaaS thủ công](docs/SAAS.md) và
+> [Build / cập nhật Coolify](packaging/selfhost/README.md).
+> Thanh toán đang xử lý thủ công; gói Trial/Pro/Business ban đầu là bản nháp.
+> Upstream desktop vẫn được giữ để có thể lấy cập nhật và merge về sau.
+
 <div align="center">
 
 <img src="assets/brand/cit-logo.png" width="104" alt="Logo CIT Voice Studio">
