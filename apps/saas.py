@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
@@ -107,6 +107,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS admin_sessions (
           token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES admin_users(id),
           csrf TEXT NOT NULL, expires_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS access_requests (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
+          purpose TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new', created_at REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS access_email_time ON access_requests(email,created_at);
         ''')
         for pid,name,limit,job,price in [('trial','Trial',1000,500,0),('pro','Pro',100000,5000,None),('business','Business',500000,10000,None)]:
             db.execute('INSERT OR IGNORE INTO plans VALUES (?,?,?,?,?,0,1,?,?,?,?)',
@@ -340,16 +344,16 @@ def _session(user,response):
     return {'user':_public_user(user),'session_csrf':csrf}
 
 
-def _rate(request,email):
+def _rate(request,email,scope=''):
     peer=request.client.host if request.client else 'unknown'
-    buckets=['login:'+email,'peer:'+peer]
+    buckets=[scope+'login:'+email,scope+'peer:'+peer]
     now=time.time()
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
         db.execute('DELETE FROM auth_attempts WHERE at<?',(now-900,))
         for bucket,limit in zip(buckets,(8,60)):
             if db.execute('SELECT COUNT(*) FROM auth_attempts WHERE bucket=?',(bucket,)).fetchone()[0]>=limit:
-                db.rollback();raise HTTPException(429,'Thử đăng nhập quá nhiều lần. Vui lòng chờ 15 phút.')
+                db.rollback();raise HTTPException(429,'Bạn đã gửi nhiều yêu cầu. Vui lòng chờ 15 phút.' if scope else 'Thử đăng nhập quá nhiều lần. Vui lòng chờ 15 phút.')
         db.executemany('INSERT INTO auth_attempts VALUES (?,?)',[(b,now) for b in buckets]);db.commit()
 
 
@@ -357,6 +361,84 @@ class Account(BaseModel):
     email: str=Field(max_length=254)
     password: str=Field(min_length=12,max_length=256)
     name: str=Field(default='',max_length=100)
+
+
+class AccessRequestInput(BaseModel):
+    name:str=Field(min_length=1,max_length=100)
+    email:str=Field(min_length=3,max_length=254)
+    purpose:str=Field(default='',max_length=1000)
+    website:str=Field(default='',max_length=200)
+
+
+@router.post('/api/access-requests')
+def request_access(data:AccessRequestInput,request:Request):
+    _ready();_origin(request)
+    message={'ok':True,'message':'Đã ghi nhận yêu cầu. Quản trị viên sẽ xem nhu cầu và thông tin liên hệ của bạn.'}
+    if data.website.strip():return message
+    email=_email(data.email)
+    name=data.name.strip()
+    if not name:raise HTTPException(422,'Vui lòng nhập tên của bạn.')
+    _rate(request,email,scope='access:')
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM access_requests WHERE email=? AND created_at>?',(email,time.time()-86400)).fetchone():
+            db.execute('INSERT INTO access_requests VALUES (?,?,?,?,?,?)',(uuid.uuid4().hex,name,email,data.purpose.strip(),'new',time.time()))
+        db.commit()
+    return message
+
+
+@router.get('/api/admin/access-requests')
+def admin_access_requests(request:Request):
+    _admin(request)
+    with connect() as db:
+        return {'items':[dict(row) for row in db.execute('SELECT * FROM access_requests ORDER BY created_at DESC LIMIT 500')]}
+
+
+class AccessRequestPatch(BaseModel):
+    status:Literal['new','reviewed','closed']
+
+
+@router.patch('/api/admin/access-requests/{rid}')
+def update_access_request(rid:str,data:AccessRequestPatch,request:Request):
+    _admin(request)
+    with connect() as db:
+        if db.execute('UPDATE access_requests SET status=? WHERE id=?',(data.status,rid)).rowcount!=1:
+            raise HTTPException(404,'Không tìm thấy yêu cầu.')
+        _audit(db,'access_request.'+data.status,rid)
+    return {'ok':True,'status':data.status}
+
+
+@router.get('/homepage')
+def homepage():
+    if not deployment.is_selfhost():raise HTTPException(404)
+    from html import escape
+    page=Path(__file__).with_name('landing_static')/'homepage.html'
+    return HTMLResponse(page.read_text(encoding='utf-8').replace('__PUBLIC_URL__',escape(deployment.public_url(),quote=True)),
+                        headers={'Cache-Control':'public, max-age=300'})
+
+
+@router.get('/landing-assets/{name}')
+def landing_assets(name:str):
+    if not deployment.is_selfhost():raise HTTPException(404)
+    allowed={'homepage.css','homepage.js','demo-male.wav','demo-female.wav','favicon.svg',
+             'font-latin.woff2','font-vietnamese.woff2'}
+    if name not in allowed:raise HTTPException(404)
+    path=Path(__file__).with_name('landing_static')/name
+    if not path.is_file():raise HTTPException(404)
+    return FileResponse(path,headers={'Cache-Control':'public, max-age=3600'})
+
+
+@router.get('/robots.txt')
+def robots():
+    if not deployment.is_selfhost():raise HTTPException(404)
+    return PlainTextResponse('User-agent: *\nAllow: /\nDisallow: /studio\nDisallow: /api/\nDisallow: /saas/admin\nDisallow: /saas/api/\nSitemap: '+deployment.public_url()+'/sitemap.xml\n')
+
+
+@router.get('/sitemap.xml')
+def sitemap():
+    if not deployment.is_selfhost():raise HTTPException(404)
+    from xml.sax.saxutils import escape
+    return Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'+escape(deployment.public_url())+'/</loc></url></urlset>',media_type='application/xml')
 
 
 @router.get('/api/config')

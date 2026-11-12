@@ -34,3 +34,6 @@ CIT_PUBLIC_URL at startup. Changing a domain requires matching DNS/Coolify domai
 and environment, then redeploy. The image no longer needs a hard-coded Host fix.
 This is a single-owner server with one shared active model and one API key,
 not a multitenant service. No GPU support is implied by deployment mode.
+
+Public landing page is served at `/`; the original owner engine UI is now `/studio`
+with the same admin session gate. Customer portal remains `/saas/`.

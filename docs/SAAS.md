@@ -1,3 +1,7 @@
+Public homepage: `/`; owner engine studio: `/studio` (administrator session required).
+Manual access requests from homepage appear in admin → Yêu cầu tài khoản.
+They do not create customer accounts, assign plans, or open signup.
+
 # SaaS foundation — manual plans
 
 Owner: `/saas/admin`, sign in at `/saas/admin/login` using the administrator account. Customers: `/saas/`.

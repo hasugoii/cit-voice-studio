@@ -892,9 +892,27 @@ def _synthesize_with_cues(text: str, sr: int, infer_one, speed: float = 1.0, use
 # -------------------------------------------------------------
 @app.get("/", include_in_schema=False)
 async def ui():
+    if deployment.is_selfhost():
+        return saas.homepage()
+    return _studio_page()
+
+
+def _studio_page():
     if (DIST_DIR / "index.html").exists():
         return FileResponse(DIST_DIR / "index.html", media_type="text/html")
     return Response("CIT Voice Studio UI not found. Build the frontend first.", status_code=404, media_type="text/plain")
+
+
+@app.get('/studio',include_in_schema=False)
+@app.get('/studio/',include_in_schema=False)
+async def owner_studio(request:Request):
+    if not deployment.is_selfhost():raise HTTPException(404)
+    try:saas._admin(request)
+    except HTTPException as error:
+        if error.status_code!=401:raise
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse('/saas/admin/login?next=%2Fstudio',status_code=303)
+    return _studio_page()
 
 
 @app.get("/favicon.ico", include_in_schema=False)

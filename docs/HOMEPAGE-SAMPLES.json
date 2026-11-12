@@ -1,0 +1,26 @@
+[
+  {
+    "file": "demo-male.wav",
+    "model": "VieNeu-TTS-v3-Turbo (int8)",
+    "voice_id": "Hải Đăng",
+    "voice_name": "Hải Đăng",
+    "text": "Xin chào, đây là bản nghe thử của Donomi Voice. Biến nội dung của bạn thành giọng đọc rõ ràng, dễ nghe.",
+    "duration": 5.44,
+    "sample_rate": 48000,
+    "sha256": "35207bacdf651075c2cf5754153cd56bdf470c405337f192636622524ddd8f06",
+    "source": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
+    "license_record": "THIRD-PARTY-NOTICES.md"
+  },
+  {
+    "file": "demo-female.wav",
+    "model": "VieNeu-TTS-v3-Turbo (int8)",
+    "voice_id": "Trúc Ly",
+    "voice_name": "Trúc Ly",
+    "text": "Xin chào, đây là bản nghe thử của Donomi Voice. Biến nội dung của bạn thành giọng đọc rõ ràng, dễ nghe.",
+    "duration": 5.12,
+    "sample_rate": 48000,
+    "sha256": "1bbddad809191d00b0ce5b28aea06dcbd1839b2c57d3fa359c7865de9cf86c8d",
+    "source": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
+    "license_record": "THIRD-PARTY-NOTICES.md"
+  }
+]
