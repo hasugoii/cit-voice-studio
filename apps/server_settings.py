@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from apps.remote_access import require_this_machine
+from apps import deployment
 
 
 def settings_path() -> Path:
@@ -17,6 +18,8 @@ def settings_path() -> Path:
 
 
 def configured_port() -> int:
+    if deployment.is_selfhost():
+        return int(os.environ.get("PORT", "8001"))
     try:
         value = json.loads(settings_path().read_text(encoding="utf-8"))["PORT"]
         if type(value) is int and 1 <= value <= 65535:
@@ -68,6 +71,9 @@ def get_server_port(request: Request):
 
 @router.put("/api/settings/server-port")
 def set_server_port(settings: PortSettings, request: Request):
+    require_this_machine(request)
+    if deployment.is_selfhost():
+        raise HTTPException(status_code=409, detail="Cổng VPS được quản lý bằng cấu hình container. Cập nhật trong Coolify rồi redeploy.")
     try:
         save_port(settings.port)
     except OSError as error:
@@ -96,7 +102,7 @@ def restart_app(request: Request):
     if handler is None:
         raise HTTPException(
             status_code=409,
-            detail="Chế độ chạy này không tự khởi động lại được. Hãy tắt rồi mở lại ứng dụng.",
+            detail="Khởi động lại service trong Coolify." if deployment.is_selfhost() else "Chế độ chạy này không tự khởi động lại được. Hãy tắt rồi mở lại ứng dụng.",
         )
     # Trả lời trước rồi mới thoát, để giao diện kịp nhận kết quả.
     threading.Timer(0.5, handler).start()

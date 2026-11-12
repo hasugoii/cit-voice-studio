@@ -1,0 +1,18 @@
+services:
+  voice:
+    image: cit-voice-studio-gateway:6fc8d149
+    environment:
+      - SERVICE_FQDN_VOICE_8080
+      - PORT=8001
+      - CIT_DEPLOYMENT_MODE=selfhost
+      - CIT_PUBLIC_URL=https://voice.apps.donomi.jp
+      - CIT_PUBLIC_API_PREFIX=/public-api
+      - OMP_NUM_THREADS=2
+    volumes:
+      - cit-data:/data
+      - /data/cit-voice-auth:/run/cit-auth:ro
+    mem_limit: 8g
+    cpus: 2.0
+    restart: unless-stopped
+volumes:
+  cit-data:

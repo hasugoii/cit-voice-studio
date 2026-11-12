@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from apps.app_version import APP_VERSION
 from apps.remote_access import require_this_machine
+from apps import deployment
 from apps.runtime_paths import https_context
 
 RELEASES_REPO = "Cuongyd196/cit-voice-studio"
@@ -76,6 +77,8 @@ def _write(state: dict) -> None:
 
 
 def is_enabled() -> bool:
+    if deployment.is_selfhost():
+        return False  # Image releases are managed by the VPS operator.
     return _read().get("enabled") is True
 
 

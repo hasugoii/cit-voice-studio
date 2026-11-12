@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from apps import deployment
 
 # Khớp danh sách API công khai trong cit-voice-studio.md / tests/test_public_api_docs.py.
 PUBLIC_PATHS = frozenset({
@@ -109,6 +110,9 @@ def reset_cache() -> None:
 
 def listen_host() -> str:
     """Địa chỉ server nên lắng nghe khi khởi động."""
+    if deployment.is_selfhost():
+        deployment.public_url()
+        return "127.0.0.1"
     return "0.0.0.0" if current()["enabled"] else "127.0.0.1"
 
 
@@ -256,12 +260,13 @@ def require_this_machine(request: Request) -> None:
 def _status(request: Request) -> dict:
     state = current()
     return {
+        **deployment.info(),
         "enabled": state["enabled"],
         "api_key": state["api_key"],
         "listening_all": is_listening_all(),
         "port": request.url.port or 80,
-        "addresses": lan_addresses(),
-        "primary_address": primary_address(),
+        "addresses": [] if deployment.is_selfhost() else lan_addresses(),
+        "primary_address": None if deployment.is_selfhost() else primary_address(),
     }
 
 
@@ -273,6 +278,12 @@ class RemoteAccessUpdate(BaseModel):
 def get_remote_access(request: Request):
     require_this_machine(request)
     return _status(request)
+
+
+@router.get("/api/deployment")
+def get_deployment(request: Request):
+    require_this_machine(request)
+    return deployment.info()
 
 
 @router.put("/api/remote-access")

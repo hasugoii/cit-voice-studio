@@ -963,6 +963,10 @@ export async function clearHistory(apiUrl: string): Promise<void> {
 // ---- Cho may khac truy cap (LAN) + khoa API ----
 
 export interface RemoteAccessInfo {
+  mode?: "desktop" | "selfhost";
+  public_url?: string | null;
+  public_api_url?: string | null;
+  port_managed?: boolean;
   /** IPv4 trong mang LAN cua may nay. */
   addresses: string[];
   api_key: string;

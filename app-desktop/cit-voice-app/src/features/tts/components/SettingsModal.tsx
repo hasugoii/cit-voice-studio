@@ -17,7 +17,7 @@ import {
 import type React from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AppUpdateInfo } from "../api";
-import { checkServerHealth, fetchServerPort, saveServerPort } from "../api";
+import { checkServerHealth, fetchServerPort, saveServerPort, fetchRemoteAccess, type RemoteAccessInfo } from "../api";
 import type { AppSettings, VoiceOption } from "../types";
 import { UpdateCheckToggle } from "./AppUpdate";
 import { DefaultVoicePicker } from "./DefaultVoicePicker";
@@ -162,6 +162,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateChecked,
   voices,
 }) => {
+  const [deploymentInfo, setDeploymentInfo] = useState<RemoteAccessInfo | null>(null);
+  const hosted = deploymentInfo?.mode === "selfhost";
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    fetchRemoteAccess(settings.apiUrl, controller.signal).then(setDeploymentInfo).catch(() => setDeploymentInfo(null));
+    return () => controller.abort();
+  }, [isOpen, settings.apiUrl]);
   const titleId = useId();
   const urlId = useId();
   const portId = useId();
@@ -285,23 +293,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  // Ví dụ Python dùng được trên Windows; tránh cú pháp xuống dòng riêng của Unix.
-  const apiExample = `import json, urllib.request
+  const publicApiBase = deploymentInfo?.public_api_url ?? apiUrl.replace(TRAILING_SLASH, "");
+  const apiExample = `import json, os, urllib.request
 
-body = json.dumps({
-    "text": "Xin chào từ ứng dụng khác",
-    "voice_id": "Minh Đức",
-    "speed": 1.0,
-}).encode()
-
-req = urllib.request.Request(
-    "${apiUrl.replace(/\/$/, "")}/api/tts/generate",
-    data=body,
-    headers={"Content-Type": "application/json"},
-    # Gọi từ máy khác: đổi 127.0.0.1 thành IP máy này và thêm
-    # "X-API-Key": "<khoá trong Cài đặt>" vào headers.
-)
-with urllib.request.urlopen(req) as r:
+base = "${publicApiBase}"
+headers = {"Content-Type": "application/json", "X-API-Key": os.environ["VOICE_API_KEY"]}
+# Lấy một giọng hiện dùng được thay vì gắn cứng giọng của mô hình khác.
+with urllib.request.urlopen(urllib.request.Request(base + "/voices", headers=headers)) as r:
+    voice = json.load(r)[0]
+text = {"ja": "こんにちは。", "zh": "你好。", "en": "Hello."}.get(voice.get("language"), "Xin chào")
+body = json.dumps({"text": text, "voice_id": voice["id"], "format": "wav"}).encode()
+req = urllib.request.Request(base + "/api/tts/generate", data=body, headers=headers)
+with urllib.request.urlopen(req, timeout=180) as r:
     open("giong-noi.wav", "wb").write(r.read())`;
 
   const handleCopyExample = () => {
@@ -354,11 +357,12 @@ with urllib.request.urlopen(req) as r:
     onSaveSettings({ ...settings, apiUrl: apiUrl.trim() });
   };
 
+  const sections = SETTINGS_SECTIONS.map(item => hosted && item.id === "network" ? { ...item, label: "API qua HTTPS", description: "Domain công khai và khóa cho ứng dụng bên ngoài." } : item);
   const currentSection =
-    SETTINGS_SECTIONS.find((item) => item.id === section) ??
+    sections.find((item) => item.id === section) ??
     SETTINGS_SECTIONS[0];
 
-  const apiBase = apiUrl.replace(TRAILING_SLASH, "");
+  const apiBase = publicApiBase;
   const showServiceUrl = needsServiceUrl(settings.apiUrl);
 
   return (
@@ -393,7 +397,7 @@ with urllib.request.urlopen(req) as r:
         <div className="settings-body">
           <nav aria-label="Danh mục cài đặt" className="settings-nav">
             <span className="settings-nav-label">Tuỳ chỉnh ứng dụng</span>
-            {SETTINGS_SECTIONS.map((item) => (
+            {sections.map((item) => (
               <button
                 aria-current={section === item.id ? "page" : undefined}
                 key={item.id}
@@ -509,6 +513,14 @@ with urllib.request.urlopen(req) as r:
                 </div>
               )}
 
+              {hosted ? (
+                <div className="settings-card space-y-3">
+                  <h4 className="settings-card-title">Máy chủ VPS</h4>
+                  <p className="settings-help">Địa chỉ quản lý: {deploymentInfo?.public_url}</p>
+                  <p className="settings-help">Base URL API: {publicApiBase}</p>
+                  <p className="settings-help">Domain, cổng nội bộ, cập nhật và khởi động lại được quản lý trong Coolify. Không cần đổi cổng hoặc cấu hình tường lửa trên máy cá nhân.</p>
+                </div>
+              ) : (
               <div className="settings-card space-y-3">
                 <label className="settings-card-title" htmlFor={portId}>
                   Cổng khi khởi động ứng dụng
@@ -587,6 +599,7 @@ with urllib.request.urlopen(req) as r:
                   </p>
                 )}
               </div>
+              )}
             </div>
             <div className="settings-section" hidden={section !== "network"}>
               <RemoteAccessPanel apiUrl={settings.apiUrl} isOpen={isOpen} />
@@ -595,11 +608,7 @@ with urllib.request.urlopen(req) as r:
               <SaveSettingsPanel isOpen={isOpen} />
             </div>
             <div className="settings-section" hidden={section !== "updates"}>
-              <UpdateCheckToggle
-                apiUrl={settings.apiUrl}
-                isOpen={isOpen}
-                onChecked={onUpdateChecked}
-              />
+              {hosted ? <div className="settings-card"><p className="settings-help">Bản self-host được cập nhật bằng build và redeploy trong Coolify. Dữ liệu mô hình, giọng và lịch sử nằm trên volume máy chủ.</p></div> : <UpdateCheckToggle apiUrl={settings.apiUrl} isOpen={isOpen} onChecked={onUpdateChecked} />}
 
               {/* Thông tin tính năng âm thanh. */}
               <div className="settings-card space-y-3">
@@ -664,20 +673,7 @@ with urllib.request.urlopen(req) as r:
               <div className="settings-card">
                 <div className="space-y-4">
                   <p className="settings-help">
-                    Khi ứng dụng đang chạy, nó mở sẵn một máy chủ API. Phần mềm
-                    khác{" "}
-                    <strong className="text-foreground">
-                      trên cùng máy này
-                    </strong>{" "}
-                    có thể gọi vào để tạo giọng nói, không cần khoá. Máy khác
-                    trong mạng LAN: bật{" "}
-                    <strong className="text-foreground">
-                      Cho máy khác truy cập API
-                    </strong>{" "}
-                    trong mục Mạng LAN, đổi{" "}
-                    <code className="font-mono">127.0.0.1</code> thành IP máy
-                    này và gửi kèm header{" "}
-                    <code className="font-mono">X-API-Key</code>.
+                    {hosted ? <>Gọi qua <code>{publicApiBase}</code> và gửi header <code>X-API-Key</code> hoặc <code>Authorization: Bearer</code>. Lấy khóa tại mục API qua HTTPS. Không cần mật khẩu web; API không cho quản lý mô hình hay lịch sử. Mô hình được chọn dùng chung giữa web và API.</> : <>Ứng dụng khác trên cùng máy gọi được API trực tiếp. Với máy khác, bật Mạng LAN và gửi khóa API.</>}
                   </p>
 
                   <div className="settings-api-table">

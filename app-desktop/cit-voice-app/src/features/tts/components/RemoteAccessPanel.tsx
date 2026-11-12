@@ -32,6 +32,9 @@ function statusOf(info: RemoteAccessInfo): {
   /** Co = da luu nhung can khoi dong lai: hien RestartNotice thay cho hop trang thai. */
   restart?: string;
 } {
+  if (info.mode === "selfhost") {
+    return { text: info.enabled ? "API HTTPS đang bật. Phần mềm bên ngoài phải gửi khóa API." : "API HTTPS đang tắt. Trang quản lý vẫn truy cập được bằng tài khoản.", tone: info.enabled ? "ok" : "muted" };
+  }
   if (info.enabled && info.listening_all) {
     return { text: "Đang mở - máy khác gọi được khi có khoá.", tone: "ok" };
   }
@@ -112,12 +115,13 @@ export const RemoteAccessPanel: React.FC<RemoteAccessPanelProps> = ({
     run(() => regenerateRemoteKey(apiUrl));
   };
 
+  const hosted = info?.mode === "selfhost";
   const status = info ? statusOf(info) : null;
   const mainIp = info?.primary_address ?? info?.addresses[0] ?? null;
   const otherIps = info?.addresses.filter((ip) => ip !== mainIp) ?? [];
-  const firstUrl = mainIp
+  const firstUrl = info?.public_api_url ?? (mainIp
     ? `http://${mainIp}:${info?.port}`
-    : `http://<IP-máy-này>:${info?.port ?? 8001}`;
+    : `http://<IP-máy-này>:${info?.port ?? 8001}`);
 
   return (
     <div className="settings-card space-y-3">
@@ -126,10 +130,9 @@ export const RemoteAccessPanel: React.FC<RemoteAccessPanelProps> = ({
           <Wifi size={18} />
         </span>
         <span className="settings-toggle-text">
-          <strong>Cho máy khác truy cập API (mạng LAN)</strong>
+          <strong>{hosted ? "Cho ứng dụng bên ngoài gọi API qua HTTPS" : "Cho máy khác truy cập API (mạng LAN)"}</strong>
           <span>
-            Máy khác chỉ gọi được API tạo giọng và phải kèm khoá. Phần mềm trên
-            máy này không cần khoá.
+            {hosted ? "Khóa API chỉ cho phép tạo giọng và xem trạng thái, không mở được trang quản lý. Bật/tắt có hiệu lực ngay." : "Máy khác chỉ gọi được API tạo giọng và phải kèm khoá. Phần mềm trên máy này không cần khoá."}
           </span>
         </span>
         <input
@@ -215,9 +218,11 @@ export const RemoteAccessPanel: React.FC<RemoteAccessPanelProps> = ({
 
           <div className="space-y-1">
             <span className="font-semibold text-foreground">
-              Địa chỉ cho máy khác
+              {hosted ? "Base URL API công khai" : "Địa chỉ cho máy khác"}
             </span>
-            {mainIp ? (
+            {info.public_api_url ? (
+              <p className="break-all font-mono font-semibold text-foreground">{info.public_api_url}</p>
+            ) : mainIp ? (
               <p className="font-mono font-semibold text-foreground">
                 http://{mainIp}:{info.port}
               </p>
@@ -238,11 +243,11 @@ export const RemoteAccessPanel: React.FC<RemoteAccessPanelProps> = ({
 
           <div className="space-y-1">
             <span className="font-semibold text-foreground">
-              Thử từ máy khác (cmd hoặc PowerShell)
+              {hosted ? "Thử gọi từ phần mềm hoặc terminal" : "Thử từ máy khác (cmd hoặc PowerShell)"}
             </span>
             <div className="flex gap-1.5">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg bg-zinc-950 px-2.5 py-1.5 font-mono text-[12px] text-zinc-200">
-                curl.exe -H "X-API-Key: {showKey ? info.api_key : "<khoá>"}"{" "}
+                {hosted ? "curl" : "curl.exe"} -H "X-API-Key: {showKey ? info.api_key : "<khoá>"}"{" "}
                 {firstUrl}/health
               </code>
               <button
@@ -250,7 +255,7 @@ export const RemoteAccessPanel: React.FC<RemoteAccessPanelProps> = ({
                 onClick={() =>
                   copy(
                     "curl",
-                    `curl.exe -H "X-API-Key: ${info.api_key}" ${firstUrl}/health`
+                    `${hosted ? "curl" : "curl.exe"} -H "X-API-Key: ${info.api_key}" ${firstUrl}/health`
                   )
                 }
                 type="button"
@@ -268,9 +273,7 @@ export const RemoteAccessPanel: React.FC<RemoteAccessPanelProps> = ({
           <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-amber-700 leading-relaxed dark:text-amber-300">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              Chỉ bật trong mạng tin cậy và đừng chia sẻ khoá công khai. Khoá đi
-              qua HTTP không mã hoá - muốn đưa ra Internet, hãy dùng đường hầm
-              HTTPS (Cloudflare Tunnel, ngrok) thay vì mở cổng router.
+              {hosted ? "Kết nối được mã hóa HTTPS. Giữ khóa trong backend hoặc secret manager; không nhúng vào JavaScript công khai. Đổi khóa sẽ vô hiệu khóa cũ ngay." : "Chỉ bật trong mạng tin cậy và đừng chia sẻ khoá công khai. Khoá đi qua HTTP không mã hoá - muốn đưa ra Internet, hãy dùng đường hầm HTTPS thay vì mở cổng router."}
             </span>
           </p>
         </div>

@@ -85,6 +85,7 @@ if os.getenv("CIT_KOKORO_SELFTEST") == "1":
 from vieneu import Vieneu
 from apps import ai_label, model_catalog, model_downloader
 from apps.app_version import APP_VERSION
+from apps import deployment
 
 SAMPLE_RATE = 48_000
 
@@ -112,7 +113,18 @@ app = FastAPI(
     title="CIT Voice Studio TTS API",
     version=APP_VERSION,
     description=DOCS_DESCRIPTION,
+    docs_url=None if deployment.is_selfhost() else "/docs",
+    redoc_url=None if deployment.is_selfhost() else "/redoc",
 )
+if deployment.is_selfhost():
+    from fastapi.openapi.docs import get_swagger_ui_html
+
+    @app.get("/docs", include_in_schema=False)
+    async def hosted_docs():
+        return get_swagger_ui_html(
+            openapi_url=deployment.info()["public_api_url"] + "/openapi.json",
+            title="CIT Voice Studio — HTTPS API",
+        )
 from apps.server_settings import router as server_settings_router, setup_port
 # API noi bo (chi giao dien cua app dung) an khoi /docs: tai lieu cho phan mem
 # khac chi gom cac API tao giong. Van chay binh thuong, chi khong liet ke.
@@ -152,6 +164,12 @@ async def get_cit_voice_studio_doc(download: bool = False):
     if not doc_path.exists():
         raise HTTPException(status_code=404, detail="File cit-voice-studio.md không tồn tại.")
     disposition = "attachment" if download else "inline"
+    if deployment.is_selfhost():
+        base = deployment.info()["public_api_url"]
+        text = doc_path.read_text(encoding="utf-8")
+        text = text.replace("http://127.0.0.1:8001", base).replace("http://localhost:8001", base)
+        intro = f"# Self-host HTTPS API\n\nBase URL: {base}\nAll inference requests require X-API-Key (or Authorization: Bearer).\nGet the key from Settings > API qua HTTPS. Model selection is shared with the web UI.\n\n"
+        return Response(intro + text, media_type="text/markdown", headers={"Content-Disposition": f'{disposition}; filename="cit-voice-studio.md"'})
     return FileResponse(
         str(doc_path),
         media_type="text/markdown; charset=utf-8",
@@ -2111,6 +2129,8 @@ def _openapi_with_api_key():
     from fastapi.openapi.utils import get_openapi
 
     schema = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
+    if deployment.is_selfhost():
+        schema["servers"] = [{"url": deployment.info()["public_api_url"]}]
     schema.setdefault("components", {})["securitySchemes"] = {
         "ApiKey": {
             "type": "apiKey",
@@ -2122,7 +2142,7 @@ def _openapi_with_api_key():
     for path, operations in schema.get("paths", {}).items():
         if path in remote_access.PUBLIC_PATHS:
             for operation in operations.values():
-                operation["security"] = [{}, {"ApiKey": []}]
+                operation["security"] = [{"ApiKey": []}] if deployment.is_selfhost() else [{}, {"ApiKey": []}]
     app.openapi_schema = schema
     return schema
 
