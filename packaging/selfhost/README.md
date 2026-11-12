@@ -8,13 +8,11 @@ Build from repository root:
 
 ```bash
 docker build -f packaging/docker/Dockerfile -t cit-voice-studio:selfhost-vps .
-docker build -t cit-voice-studio-gateway:6fc8d149 packaging/selfhost
+docker build -t cit-voice-studio-gateway:selfhost-vps packaging/selfhost
 ```
 
-`6fc8d149` is the existing local image tag used by the installed Coolify service,
-not a claim that the gateway has no changes beyond that upstream commit. Record
-the actual Git commit at deployment; new installations may choose their own tag
-as long as the compose image matches. These are local images, not registry pulls.
+`selfhost-vps` is the local image tag used by the installed Coolify service.
+Record the actual Git commit at deployment. These are local images, not registry pulls.
 
 Copy `compose.yaml` into a Coolify Compose service; set the domain on service
 `voice` to `https://YOUR-DOMAIN:8080` (8080 is the internal gateway port, public
@@ -62,3 +60,14 @@ Do not reset this branch to upstream/main: it would remove selfhost changes.
 Do not remove the named volume during updates. Back up volume before major changes.
 README API examples for the installed service are in the operator workspace;
 the web UI now generates external examples using configured domain and API key.
+
+## Installed VPS update command
+
+```bash
+cd /home/ubuntu/cit-voice-selfhost-repo
+env COOLIFY_SERVICE_UUID=akk7ydzazhn2fkb8svt0zmsr sh packaging/selfhost/update-vps.sh
+```
+
+This service-specific command pulls the fork branch, rebuilds both local images and
+recreates only the voice service. It does not change firewall, Docker daemon, or
+remove volumes. Domain/environment changes must first be saved in Coolify.

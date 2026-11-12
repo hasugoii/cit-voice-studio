@@ -202,6 +202,10 @@ class RemoteAccessMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        # SaaS routes perform their own session/key, CSRF and owner checks.
+        if deployment.is_selfhost() and (scope.get('path','') == '/saas' or scope.get('path','').startswith('/saas/')):
+            await self.app(scope, receive, send)
+            return
         if scope["type"] not in ("http", "websocket") or not is_remote(scope):
             await self.app(scope, receive, send)
             return

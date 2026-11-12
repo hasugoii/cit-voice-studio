@@ -519,6 +519,8 @@ with urllib.request.urlopen(req, timeout=180) as r:
                   <p className="settings-help">Địa chỉ quản lý: {deploymentInfo?.public_url}</p>
                   <p className="settings-help">Base URL API: {publicApiBase}</p>
                   <p className="settings-help">Domain, cổng nội bộ, cập nhật và khởi động lại được quản lý trong Coolify. Không cần đổi cổng hoặc cấu hình tường lửa trên máy cá nhân.</p>
+                  <p className="settings-help"><a className="underline" href="/saas/admin" target="_blank" rel="noreferrer">Quản trị SaaS: khách hàng và gói dịch vụ</a></p>
+                  <p className="settings-help"><a className="underline" href="/saas/" target="_blank" rel="noreferrer">Mở cổng khách hàng</a></p>
                 </div>
               ) : (
               <div className="settings-card space-y-3">

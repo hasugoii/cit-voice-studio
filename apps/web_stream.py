@@ -152,6 +152,11 @@ from apps import terms
 app.include_router(terms.router, include_in_schema=False)
 from apps import ui_prefs
 app.include_router(ui_prefs.router, include_in_schema=False)
+from apps import saas
+if deployment.is_selfhost():
+    app.include_router(saas.router)
+    if os.environ.get('CIT_SKIP_MODEL_AUTOLOAD') != '1':
+        saas.recover_jobs()
 
 @app.get("/cit-voice-studio.md", response_class=FileResponse, tags=["Documentation"])
 async def get_cit_voice_studio_doc(download: bool = False):
@@ -183,7 +188,7 @@ async def get_cit_voice_studio_doc(download: bool = False):
 # Enable CORS for desktop app & local web clients
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[deployment.public_url()] if deployment.is_selfhost() else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2136,7 +2141,7 @@ def _openapi_with_api_key():
             "type": "apiKey",
             "in": "header",
             "name": "X-API-Key",
-            "description": "Chỉ cần khi gọi từ máy khác. Lấy khoá trong Cài đặt → Cho máy khác truy cập API.",
+            "description": "Bắt buộc khi gọi API HTTPS. Lấy khóa trong Cài đặt → API qua HTTPS." if deployment.is_selfhost() else "Chỉ cần khi gọi từ máy khác. Lấy khoá trong Cài đặt → Cho máy khác truy cập API.",
         }
     }
     for path, operations in schema.get("paths", {}).items():
@@ -2148,6 +2153,24 @@ def _openapi_with_api_key():
 
 
 app.openapi = _openapi_with_api_key
+
+# SaaS calls use the same engine, but only preset voices and isolated usage data.
+# Run synchronous inference in a worker so account/admin requests remain usable.
+def _saas_generate(payload):
+    import asyncio
+    return asyncio.run(generate_tts(TtsGenerateReq(**payload)))
+
+def _saas_voices():
+    import asyncio
+    return asyncio.run(voices())
+
+def _saas_health():
+    import asyncio
+    return asyncio.run(health())
+
+saas.generate_audio = _saas_generate
+saas.list_voices = _saas_voices
+saas.model_health = _saas_health
 
 
 def main():

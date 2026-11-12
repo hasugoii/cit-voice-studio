@@ -1,6 +1,6 @@
 services:
   voice:
-    image: cit-voice-studio-gateway:6fc8d149
+    image: cit-voice-studio-gateway:selfhost-vps
     environment:
       - SERVICE_FQDN_VOICE_8080
       - PORT=8001
